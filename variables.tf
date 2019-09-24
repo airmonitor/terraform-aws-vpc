@@ -1,9 +1,3 @@
-variable "environment" {
-}
-
-variable "provider_code" {
-}
-
 variable "cidr_block" {
   type        = string
   description = "The CIDR block for the VPC."
@@ -61,7 +55,6 @@ variable "private_subnet_cidr_blocks" {
   type        = list(string)
   description = "The CIDR blocks for the private subnets."
 }
-
 
 variable "private_db_subnet_cidr_blocks" {
   default     = []

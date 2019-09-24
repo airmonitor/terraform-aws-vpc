@@ -3,13 +3,16 @@
 # https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html
 
 # https://www.terraform.io/docs/providers/aws/r/vpc.html
-resource "aws_vpc" "default" {
-  cidr_block = var.cidr_block
 
+variable "tags" {
+  default = ""
+}
+
+resource "aws_vpc" "default" {
+  cidr_block           = var.cidr_block
   instance_tenancy     = var.instance_tenancy
   enable_dns_support   = var.enable_dns_support
   enable_dns_hostnames = var.enable_dns_hostnames
-  tags                 = merge(map("Name", var.name), var.tags)
 }
 
 # https://www.terraform.io/docs/providers/aws/r/internet_gateway.html
@@ -18,6 +21,22 @@ resource "aws_internet_gateway" "default" {
   tags   = merge(map("Name", var.name), var.tags)
 }
 
+# https://www.terraform.io/docs/providers/aws/r/route_table.html
+resource "aws_route_table" "default" {
+  vpc_id = aws_vpc.default.id
+}
+
+# https://www.terraform.io/docs/providers/aws/r/route.html
+resource "aws_route" "default" {
+  route_table_id         = aws_route_table.default.id
+  gateway_id             = aws_internet_gateway.default.id
+  destination_cidr_block = "0.0.0.0/0"
+}
+
+resource "aws_main_route_table_association" "default" {
+  vpc_id         = aws_vpc.default.id
+  route_table_id = aws_route_table.default.id
+}
 #
 # Public network
 #
@@ -28,6 +47,16 @@ resource "aws_subnet" "public" {
 
   vpc_id                  = aws_vpc.default.id
   cidr_block              = var.public_subnet_cidr_blocks[count.index]
+  availability_zone       = var.public_availability_zones[count.index]
+  map_public_ip_on_launch = var.map_public_ip_on_launch
+  tags                    = merge(map("Name", format("%s-public-%d", var.name, count.index)), var.tags)
+}
+
+resource "aws_subnet" "db_subnet_public" {
+  count = length(var.public_db_subnet_cidr_blocks)
+
+  vpc_id                  = aws_vpc.default.id
+  cidr_block              = var.public_db_subnet_cidr_blocks[count.index]
   availability_zone       = var.public_availability_zones[count.index]
   map_public_ip_on_launch = var.map_public_ip_on_launch
   tags                    = merge(map("Name", format("%s-public-%d", var.name, count.index)), var.tags)
@@ -55,9 +84,6 @@ resource "aws_route_table_association" "public" {
 }
 
 # https://www.terraform.io/docs/providers/aws/r/network_acl.html
-variable "tags" {
-  default = ""
-}
 resource "aws_network_acl" "public" {
   vpc_id     = aws_vpc.default.id
   subnet_ids = aws_subnet.public.*.id
@@ -112,29 +138,16 @@ resource "aws_subnet" "db_subnet_private" {
   tags                    = merge(map("Name", format("%s-private-%d", var.name, count.index)), var.tags)
 }
 
-resource "aws_subnet" "db_subnet_public" {
-  count = length(var.public_db_subnet_cidr_blocks)
-
-  vpc_id                  = aws_vpc.default.id
-  cidr_block              = var.public_db_subnet_cidr_blocks[count.index]
-  availability_zone       = var.public_availability_zones[count.index]
-  map_public_ip_on_launch = var.map_public_ip_on_launch
-  tags                    = merge(map("Name", format("%s-public-%d", var.name, count.index)), var.tags)
-}
-
 resource "aws_db_subnet_group" "db_subnet_group_public" {
-  count = length(var.public_db_subnet_cidr_blocks) > 0 ? 1 : 0
-
-  name       = join("-", [lower(var.environment), lower(var.provider_code), "db-public-sg"])
+  count      = length(var.public_db_subnet_cidr_blocks) > 0 ? 1 : 0
   subnet_ids = aws_subnet.db_subnet_public[*].id
   tags       = merge(map("Name", format("%s-public-%d", var.name, count.index)), var.tags)
 }
 
 resource "aws_db_subnet_group" "db_subnet_group_private" {
   count      = length(var.private_db_subnet_cidr_blocks) > 0 ? 1 : 0
-  name       = join("-", [lower(var.environment), lower(var.provider_code), "db-private-sg"])
   subnet_ids = aws_subnet.db_subnet_private[*].id
-  tags       = merge(map("Name", format("%s-private-%d", var.name, count.index)), var.tags)
+  tags       = merge(map("Name", format("%s-public-%d", var.name, count.index)), var.tags)
 }
 
 # Note: Do not use network_interface to associate the EIP to aws_lb or aws_nat_gateway resources.
@@ -147,7 +160,6 @@ resource "aws_eip" "nat_gateway" {
 
   vpc  = true
   tags = merge(map("Name", format("%s-nat-%d", var.name, count.index)), var.tags)
-
   # Note: EIP may require IGW to exist prior to association. Use depends_on to set an explicit dependency on the IGW.
   depends_on = [aws_internet_gateway.default]
 }
@@ -159,7 +171,6 @@ resource "aws_nat_gateway" "default" {
   allocation_id = aws_eip.nat_gateway.*.id[count.index]
   subnet_id     = aws_subnet.public.*.id[count.index]
   tags          = merge(map("Name", format("%s-%d", var.name, count.index)), var.tags)
-
   # Note: It's recommended to denote that the NAT Gateway depends on the Internet Gateway
   #       for the VPC in which the NAT Gateway's subnet is located.
   depends_on = [aws_internet_gateway.default]
