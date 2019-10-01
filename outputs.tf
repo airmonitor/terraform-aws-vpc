@@ -203,6 +203,11 @@ output "private_route_table_association_ids" {
   description = "The IDs of the private associations."
 }
 
+output "db_private_route_table_association_ids" {
+  value       = aws_route_table_association.db_private.*.id
+  description = "The IDs of the db private associations."
+}
+
 output "private_network_acl_id" {
   value       = aws_network_acl.private.id
   description = "The ID of the private network ACL."

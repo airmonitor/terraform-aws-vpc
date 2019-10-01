@@ -83,6 +83,15 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
+# https://www.terraform.io/docs/providers/aws/r/route_table_association.html
+resource "aws_route_table_association" "db_private" {
+  count = length(var.private_db_subnet_cidr_blocks)
+
+  subnet_id      = aws_subnet.db_subnet_private.*.id[count.index]
+  route_table_id = aws_route_table.private.*.id[count.index]
+}
+
+
 # https://www.terraform.io/docs/providers/aws/r/network_acl.html
 resource "aws_network_acl" "public" {
   vpc_id     = aws_vpc.default.id
